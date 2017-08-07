@@ -1,0 +1,140 @@
+Index: search-everything.php
+===================================================================
+--- search-everything.php	(revision 1536364)
++++ search-everything.php	(working copy)
+@@ -206,9 +206,14 @@
+ 
+ 		if ( $this->options['se_use_authors'] ) {
+ 
+-			add_filter( 'posts_join', array( &$this, 'se_search_authors_join' ) );
++			add_filter( 'posts_join', array( &$this, 'se_search_authors_join' ) );			
+ 			$this->se_log( "searching authors" );
+ 		}
++		if ( $this->options['se_use_authors'] ) {
++			
++			add_filter( 'posts_join', array( &$this, 'se_search_authors_meta_join' ) );
++			$this->se_log( "searching authors meta" );
++		}
+ 
+ 		add_filter( 'posts_search', array( &$this, 'se_search_where' ), 10, 2 );
+ 
+@@ -238,6 +243,9 @@
+ 				$search_terms = array_filter(array_map( create_function( '$a', 'return trim($a, "\\"\'\\n\\r ");' ), $matches[0] ));
+ 			}
+ 		}
++		  // I have added following filter.
++		$search_terms = apply_filters( 'merge_search_term', $search_terms );
++	
+ 
+ 		return $search_terms;
+ 	}
+@@ -272,9 +280,11 @@
+ 		if ( $this->options['se_use_authors'] ) {
+ 			$searchQuery .= $this->se_search_authors();
+ 		}
++		if ( $this->options['se_use_authors'] ) {
++			$searchQuery .= $this->se_search_authors_meta();
++		}
+ 		if ( $searchQuery != '' ) {
+ 			$where = preg_replace( '#\(\(\(.*?\)\)\)#', '(('.$searchQuery.'))', $where );
+-
+ 		}
+ 		if ( $this->options['se_exclude_posts_list'] != '' ) {
+ 			$where .= $this->se_build_exclude_posts();
+@@ -284,6 +294,7 @@
+ 
+ 		}
+ 		$this->se_log( "global where: ".$where );
++		
+ 		return $where;
+ 	}
+ 	// search for terms in default locations like title and content
+@@ -533,13 +544,21 @@
+ 					$search .= "{$searchand}(u.display_name LIKE '{$n}{$term}{$n}')";
+ 				}
+ 				$searchand = ' OR ';
++				if ( $this->wp_ver23 ) {
++					$search .= "{$searchand}(u.user_email LIKE '{$n}{$term}{$n}')";
++				} else {
++					$search .= "{$searchand}(u.user_email LIKE '{$n}{$term}{$n}')";
++				}
++				$searchand = ' OR ';
+ 			}
+ 			$sentence_term = esc_sql( $s );
+ 			if ( count( $search_terms ) > 1 && $search_terms[0] != $sentence_term ) {
+ 				if ( $this->wp_ver23 ) {
+ 					$search .= " OR (u.display_name LIKE '{$n}{$sentence_term}{$n}')";
++					$search .= " OR (u.user_email LIKE '{$n}{$sentence_term}{$n}')";
+ 				} else {
+ 					$search .= " OR (u.display_name LIKE '{$n}{$sentence_term}{$n}')";
++					$search .= " OR (u.user_email LIKE '{$n}{$sentence_term}{$n}')";
+ 				}
+ 			}
+ 
+@@ -554,6 +573,47 @@
+ 		return $search;
+ 	}
+ 
++	function se_search_authors_meta() {
++		global $wpdb;
++		$s = $this->query_instance->query_vars['s'];
++		$search_terms = $this->se_get_search_terms();
++		$n = ( isset( $this->query_instance->query_vars['exact'] ) && $this->query_instance->query_vars['exact'] ) ? '' : '%';
++		$search = '';
++		$searchand = '';
++
++		if ( !empty( $search_terms ) ) {
++			// Building search query
++			foreach ( $search_terms as $term ) {
++				$term = addslashes_gpc( $term );
++				if ( $this->wp_ver23 ) {
++					$search .= "{$searchand}(um.meta_value LIKE '{$n}{$term}{$n}')";
++					
++				} else {
++					$search .= "{$searchand}(um.meta_value LIKE '{$n}{$term}{$n}')";
++				}
++				$searchand = ' OR ';
++			}
++			$sentence_term = esc_sql( $s );
++			if ( count( $search_terms ) > 1 && $search_terms[0] != $sentence_term ) {
++				if ( $this->wp_ver23 ) {
++					$search .= " OR (um.meta_value LIKE '{$n}{$sentence_term}{$n}')";
++				} else {
++					$search .= " OR (um.meta_value LIKE '{$n}{$sentence_term}{$n}')";
++				}
++			}
++
++
++
++			if ( !empty( $search ) )
++				$search = " OR ({$search}) ";
++
++		}
++
++		$this->se_log( "user meta where: ".$search );
++		return $search;
++	}
++
++
+ 	// create the search meta data query
+ 	function se_build_search_metadata() {
+ 		global $wpdb;
+@@ -764,6 +824,18 @@
+ 		return $join;
+ 	}
+ 
++	function se_search_authors_meta_join( $join ) {
++		global $wpdb;
++
++		if ( !empty( $this->query_instance->query_vars['s'] ) ) {
++			$join .= " LEFT JOIN $wpdb->usermeta AS um ON ($wpdb->posts.post_author = um.user_id) ";
++		}
++		$this->se_log( "authors meta join: ".$join );
++		
++		return $join;
++	}
++
++
+ 	//join for searching metadata
+ 	function se_search_metadata_join( $join ) {
+ 		global $wpdb;
